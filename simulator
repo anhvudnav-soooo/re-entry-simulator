@@ -1,0 +1,1306 @@
+cat > /mnt/user-data/outputs/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Re-Entry Simulator</title>
+<style>
+  /* ── RESET & BASE ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #050A14;
+    color: #C8D8E8;
+    font-family: 'Courier New', Courier, monospace;
+    overflow: hidden;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ── LAYOUT ── */
+  #app {
+    display: flex; flex-direction: column;
+    width: 100%; height: 100%;
+    max-width: 480px; margin: 0 auto;
+    position: relative;
+  }
+
+  /* ── HEADER ── */
+  #header {
+    flex-shrink: 0;
+    padding: 10px 14px 6px;
+    background: linear-gradient(180deg, #050A14 80%, transparent);
+    position: relative; z-index: 10;
+  }
+  #header h1 {
+    font-size: 11px; letter-spacing: 0.25em;
+    color: #8899AA; text-transform: uppercase;
+  }
+  #header h1 span { color: #1B4FFF; }
+  #mission-id {
+    font-size: 9px; color: #445566;
+    letter-spacing: 0.15em; margin-top: 1px;
+  }
+
+  /* ── CANVAS ── */
+  #canvas-wrap {
+    flex: 1; position: relative; overflow: hidden;
+  }
+  #sim-canvas {
+    width: 100%; height: 100%;
+    display: block;
+  }
+
+  /* ── HUD OVERLAYS ── */
+  #hud {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none; z-index: 5;
+  }
+
+  /* altitude bar - left side */
+  #alt-bar {
+    position: absolute; left: 8px; top: 10px; bottom: 10px;
+    width: 3px; background: #0A1830;
+    border-radius: 2px;
+  }
+  #alt-fill {
+    position: absolute; bottom: 0; width: 100%;
+    background: linear-gradient(0deg, #00FF9F, #1B4FFF);
+    border-radius: 2px;
+    transition: height 0.1s linear;
+  }
+  #alt-label {
+    position: absolute; left: 14px; top: 10px;
+    font-size: 8px; color: #445566; letter-spacing: 0.1em;
+  }
+
+  /* temp gauge - right side */
+  #temp-bar {
+    position: absolute; right: 8px; top: 10px; bottom: 10px;
+    width: 3px; background: #0A1830;
+    border-radius: 2px;
+  }
+  #temp-fill {
+    position: absolute; bottom: 0; width: 100%;
+    background: linear-gradient(0deg, #FF6B2B, #FFF3E0);
+    border-radius: 2px;
+    transition: height 0.1s linear;
+  }
+  #temp-label {
+    position: absolute; right: 14px; top: 10px;
+    font-size: 8px; color: #445566;
+    letter-spacing: 0.1em; text-align: right;
+  }
+
+  /* instrument panel top */
+  #instruments {
+    position: absolute; top: 8px; left: 22px; right: 22px;
+    display: flex; justify-content: space-between;
+    pointer-events: none;
+  }
+  .inst-block {
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .inst-val {
+    font-size: 13px; font-weight: bold;
+    color: #00FF9F; letter-spacing: 0.05em;
+  }
+  .inst-val.hot { color: #FF6B2B; }
+  .inst-val.danger { color: #FF2B2B; animation: blink 0.4s infinite; }
+  .inst-lbl {
+    font-size: 7px; color: #445566;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    margin-top: 1px;
+  }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  /* ── BOTTOM PANEL ── */
+  #bottom-panel {
+    flex-shrink: 0;
+    background: #070D1C;
+    border-top: 1px solid #0A1830;
+    padding: 10px 14px 14px;
+    z-index: 10;
+  }
+
+  /* SETUP screen */
+  #setup-screen { display: flex; flex-direction: column; gap: 10px; }
+
+  .field-row {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .field-row label {
+    font-size: 9px; color: #445566;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    width: 70px; flex-shrink: 0;
+  }
+  .field-row input[type="text"] {
+    flex: 1; background: #0A1830;
+    border: 1px solid #0F2040; border-radius: 4px;
+    color: #C8D8E8; font-family: 'Courier New', monospace;
+    font-size: 12px; padding: 5px 8px;
+    outline: none;
+    -webkit-appearance: none;
+  }
+  .field-row input[type="text"]:focus {
+    border-color: #1B4FFF;
+  }
+
+  .slider-row {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .slider-row label {
+    font-size: 9px; color: #445566;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    width: 70px; flex-shrink: 0;
+  }
+  .slider-wrap { flex: 1; position: relative; }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 3px;
+    background: #0A1830; border-radius: 2px; outline: none;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: #1B4FFF;
+    border: 2px solid #050A14;
+    cursor: pointer;
+  }
+  .slider-val {
+    font-size: 10px; color: #00FF9F;
+    width: 50px; text-align: right; flex-shrink: 0;
+  }
+
+  /* material pills */
+  #mat-wrap {
+    display: flex; flex-wrap: wrap; gap: 5px;
+  }
+  .mat-pill {
+    padding: 4px 9px;
+    border-radius: 20px;
+    border: 1px solid #0F2040;
+    background: #0A1830;
+    font-size: 9px; color: #8899AA;
+    cursor: pointer; letter-spacing: 0.08em;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mat-pill.active {
+    border-color: #1B4FFF;
+    background: #0B1A40;
+    color: #C8D8E8;
+  }
+
+  /* shape pills */
+  #shape-wrap {
+    display: flex; gap: 5px;
+  }
+  .shape-pill {
+    flex: 1; padding: 5px;
+    border-radius: 6px;
+    border: 1px solid #0F2040;
+    background: #0A1830;
+    font-size: 11px; color: #8899AA;
+    cursor: pointer; text-align: center;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .shape-pill.active {
+    border-color: #FF6B2B;
+    background: #1A0E08;
+    color: #FF6B2B;
+  }
+
+  /* LAUNCH button */
+  #btn-launch {
+    width: 100%; padding: 12px;
+    border-radius: 8px;
+    border: none;
+    background: linear-gradient(135deg, #1B4FFF, #0A30CC);
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    font-size: 13px; letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.1s, opacity 0.1s;
+    box-shadow: 0 0 20px rgba(27,79,255,0.3);
+  }
+  #btn-launch:active { transform: scale(0.98); opacity: 0.9; }
+
+  /* RESULT screen */
+  #result-screen {
+    display: none; flex-direction: column; gap: 8px;
+  }
+  #result-outcome {
+    font-size: 20px; font-weight: bold;
+    letter-spacing: 0.05em; text-align: center;
+  }
+  #result-stats {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+  .stat-block {
+    background: #0A1830;
+    border: 1px solid #0F2040;
+    border-radius: 6px;
+    padding: 6px 4px; text-align: center;
+  }
+  .stat-v { font-size: 12px; color: #00FF9F; }
+  .stat-l { font-size: 7px; color: #445566; letter-spacing: 0.1em; margin-top: 2px; }
+  #result-fact {
+    font-size: 9px; color: #8899AA;
+    line-height: 1.5;
+    background: #07101E;
+    border-left: 2px solid #1B4FFF;
+    padding: 6px 8px;
+    border-radius: 0 4px 4px 0;
+  }
+  #result-fact span { color: #C8D8E8; }
+  #btn-retry {
+    width: 100%; padding: 10px;
+    border-radius: 8px; border: 1px solid #1B4FFF;
+    background: transparent;
+    color: #1B4FFF;
+    font-family: 'Courier New', monospace;
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #btn-retry:active { background: #0A1830; }
+
+  /* RUNNING screen */
+  #running-screen {
+    display: none;
+    text-align: center; padding: 6px 0;
+  }
+  #run-status {
+    font-size: 11px; color: #8899AA;
+    letter-spacing: 0.15em; text-transform: uppercase;
+  }
+  #run-obj-name {
+    font-size: 15px; color: #C8D8E8; margin-top: 2px;
+  }
+
+  /* ── LOG ── */
+  #log-bar {
+    position: absolute; bottom: 0; left: 22px; right: 22px;
+    pointer-events: none;
+  }
+  .log-line {
+    font-size: 8px; color: #445566;
+    letter-spacing: 0.1em;
+    animation: fadeOut 3s forwards;
+  }
+  @keyframes fadeOut { 0%{opacity:1} 70%{opacity:1} 100%{opacity:0} }
+
+  /* phase indicator */
+  #phase-tag {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 9px; letter-spacing: 0.2em;
+    color: #FF6B2B; text-transform: uppercase;
+    pointer-events: none; opacity: 0;
+    transition: opacity 0.3s;
+    text-shadow: 0 0 10px #FF6B2B;
+  }
+  #phase-tag.visible { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HEADER -->
+  <div id="header">
+    <h1>RE<span>·</span>ENTRY // <span>SIMULATOR</span></h1>
+    <div id="mission-id">MISSION — 001 · ATMOSPHERIC DESCENT ANALYSIS</div>
+  </div>
+
+  <!-- CANVAS -->
+  <div id="canvas-wrap">
+    <canvas id="sim-canvas"></canvas>
+    <div id="hud">
+      <div id="alt-bar"><div id="alt-fill"></div></div>
+      <div id="alt-label">ALT</div>
+      <div id="temp-bar"><div id="temp-fill"></div></div>
+      <div id="temp-label">TEMP</div>
+      <div id="instruments">
+        <div class="inst-block">
+          <div class="inst-val" id="i-speed">0.0</div>
+          <div class="inst-lbl">KM/S</div>
+        </div>
+        <div class="inst-block">
+          <div class="inst-val" id="i-temp">0</div>
+          <div class="inst-lbl">°C</div>
+        </div>
+        <div class="inst-block">
+          <div class="inst-val" id="i-alt">400</div>
+          <div class="inst-lbl">KM ALT</div>
+        </div>
+        <div class="inst-block">
+          <div class="inst-val" id="i-mass">100</div>
+          <div class="inst-lbl">% MASS</div>
+        </div>
+      </div>
+      <div id="phase-tag"></div>
+      <div id="log-bar"></div>
+    </div>
+  </div>
+
+  <!-- BOTTOM PANEL -->
+  <div id="bottom-panel">
+
+    <!-- SETUP SCREEN -->
+    <div id="setup-screen">
+      <div class="field-row">
+        <label>Vật thể</label>
+        <input type="text" id="obj-name" placeholder="VD: Chiếc ô tô, Viên đá..." maxlength="24">
+      </div>
+      <div id="mat-wrap">
+        <div class="mat-pill active" data-mat="rock">🪨 Đá</div>
+        <div class="mat-pill" data-mat="iron">🔩 Sắt</div>
+        <div class="mat-pill" data-mat="ice">🧊 Băng</div>
+        <div class="mat-pill" data-mat="wood">🪵 Gỗ</div>
+        <div class="mat-pill" data-mat="rubber">⚫ Cao su</div>
+        <div class="mat-pill" data-mat="glass">💎 Kính</div>
+        <div class="mat-pill" data-mat="plastic">🧴 Nhựa</div>
+        <div class="mat-pill" data-mat="water">💧 Nước</div>
+      </div>
+      <div id="shape-wrap">
+        <div class="shape-pill active" data-shape="sphere">● Tròn</div>
+        <div class="shape-pill" data-shape="cube">■ Vuông</div>
+        <div class="shape-pill" data-shape="flat">▬ Dẹt</div>
+        <div class="shape-pill" data-shape="sharp">◆ Nhọn</div>
+      </div>
+      <div class="slider-row">
+        <label>Kích thước</label>
+        <div class="slider-wrap">
+          <input type="range" id="sl-size" min="1" max="5" value="2" step="1">
+        </div>
+        <div class="slider-val" id="sv-size">Nhỏ</div>
+      </div>
+      <div class="slider-row">
+        <label>Góc vào</label>
+        <div class="slider-wrap">
+          <input type="range" id="sl-angle" min="5" max="90" value="30" step="5">
+        </div>
+        <div class="slider-val" id="sv-angle">30°</div>
+      </div>
+      <div class="slider-row">
+        <label>Tốc độ</label>
+        <div class="slider-wrap">
+          <input type="range" id="sl-speed" min="1" max="5" value="3" step="1">
+        </div>
+        <div class="slider-val" id="sv-speed">TB</div>
+      </div>
+      <button id="btn-launch">▶ PHÓNG VÀO KHÍ QUYỂN</button>
+    </div>
+
+    <!-- RUNNING SCREEN -->
+    <div id="running-screen">
+      <div id="run-status">ĐANG MÔ PHỎNG...</div>
+      <div id="run-obj-name">—</div>
+    </div>
+
+    <!-- RESULT SCREEN -->
+    <div id="result-screen">
+      <div id="result-outcome">—</div>
+      <div id="result-stats">
+        <div class="stat-block">
+          <div class="stat-v" id="st-maxtemp">—</div>
+          <div class="stat-l">NHIỆT MAX</div>
+        </div>
+        <div class="stat-block">
+          <div class="stat-v" id="st-speed">—</div>
+          <div class="stat-l">TỐC ĐỘ VÀO</div>
+        </div>
+        <div class="stat-block">
+          <div class="stat-v" id="st-survive">—</div>
+          <div class="stat-l">SÒN SÓT</div>
+        </div>
+      </div>
+      <div id="result-fact">💡 <span id="fact-text"></span></div>
+      <button id="btn-retry">↩ THỬ LẠI</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+//  RE-ENTRY SIMULATOR — Core Engine
+// ═══════════════════════════════════════════
+
+// ── MATERIAL DATABASE ──
+const MATERIALS = {
+  rock:    { name:'Đá',      meltPoint:1200, density:2.5, cdMod:1.0,  heatResist:0.6,  emoji:'🪨', color:'#8877AA' },
+  iron:    { name:'Sắt',     meltPoint:1538, density:7.8, cdMod:0.9,  heatResist:0.85, emoji:'🔩', color:'#99AACC' },
+  ice:     { name:'Băng',    meltPoint:0,    density:0.9, cdMod:1.1,  heatResist:0.1,  emoji:'🧊', color:'#AADDFF' },
+  wood:    { name:'Gỗ',      meltPoint:300,  density:0.7, cdMod:1.3,  heatResist:0.2,  emoji:'🪵', color:'#AA7744' },
+  rubber:  { name:'Cao su',  meltPoint:260,  density:1.2, cdMod:1.5,  heatResist:0.25, emoji:'⚫', color:'#334455' },
+  glass:   { name:'Kính',    meltPoint:700,  density:2.5, cdMod:0.95, heatResist:0.4,  emoji:'💎', color:'#AAFFEE' },
+  plastic: { name:'Nhựa',    meltPoint:150,  density:0.9, cdMod:1.2,  heatResist:0.15, emoji:'🧴', color:'#FFAA44' },
+  water:   { name:'Nước',    meltPoint:100,  density:1.0, cdMod:1.4,  heatResist:0.05, emoji:'💧', color:'#4499FF' },
+};
+
+const SHAPE_CD = { sphere:0.47, cube:1.05, flat:1.28, sharp:0.25 };
+
+const SIZE_LABELS = ['','Rất nhỏ','Nhỏ','Vừa','Lớn','Khổng lồ'];
+const SPEED_LABELS = ['','Chậm','Thấp','Trung bình','Cao','Siêu nhanh'];
+const SPEED_KMS    = [0, 3, 6, 9, 12, 17]; // km/s entry speed per level
+
+const FUN_FACTS = {
+  vaporized: [
+    "Hầu hết thiên thạch nhỏ bị thiêu rụi hoàn toàn ở độ cao 80-100 km.",
+    "Nhiệt độ plasma bao quanh vật thể khi vào khí quyển có thể đạt 3000°C.",
+    "Đây chính là lý do sao băng xuất hiện — vật thể bốc cháy và phát sáng!",
+    "Phần lớn 'bụi vũ trụ' (hàng tấn mỗi ngày) bị thiêu hủy hoàn toàn.",
+  ],
+  fragmented: [
+    "Áp suất không khí khi vào khí quyển có thể xé toạc vật thể thành hàng nghìn mảnh.",
+    "Sự kiện Tunguska 1908 — thiên thạch nổ tung trên không, san phẳng 2000 km² rừng.",
+    "Mưa thiên thạch hình thành từ những vật thể bị vỡ ra nhiều mảnh như thế này.",
+    "Các mảnh vỡ có thể vẫn đạt đến mặt đất, được gọi là 'strewn field'.",
+  ],
+  impact: [
+    "Miệng núi lửa Barringer ở Arizona hình thành cách đây 50.000 năm bởi thiên thạch sắt đường kính 50m.",
+    "Vật thể sắt có thể xuyên qua khí quyển nhờ mật độ cao và điểm nóng chảy lớn.",
+    "Năng lượng va chạm = ½mv² — tốc độ tăng gấp đôi → năng lượng tăng gấp 4 lần!",
+    "Hố va chạm thường có đường kính gấp 10-20 lần kích thước vật thể.",
+  ],
+  skipped: [
+    "Góc vào khí quyển <5-7° khiến vật thể 'nảy' lại như viên đá ném trượt mặt nước.",
+    "Tàu Apollo phải vào đúng 'hành lang' hẹp 5-7° — quá nông thì nảy ra ngoài vũ trụ!",
+    "Eugene Shoemaker-Levy 9 tiếp cận sao Mộc quá nông và bị lực triều phá vỡ trước.",
+    "Vật thể nảy lại có thể mất nhiệt độ và thử lại lần sau ở vị trí khác trên Trái Đất.",
+  ],
+};
+
+// ── CANVAS SETUP ──
+const canvas = document.getElementById('sim-canvas');
+const ctx    = canvas.getContext('2d');
+let W, H;
+
+function resizeCanvas() {
+  const wrap = document.getElementById('canvas-wrap');
+  W = canvas.width  = wrap.clientWidth;
+  H = canvas.height = wrap.clientHeight;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// ── STATE ──
+let missionCount = parseInt(localStorage.getItem('re_missions') || '1');
+document.getElementById('mission-id').textContent =
+  `MISSION — ${String(missionCount).padStart(3,'0')} · ATMOSPHERIC DESCENT ANALYSIS`;
+
+let simState    = 'idle';   // idle | running | result
+let selectedMat = 'rock';
+let selectedShape = 'sphere';
+let simData     = {};       // current simulation data
+let animFrame   = null;
+let stars       = [];
+let particles   = [];
+let trailPoints = [];
+let debrisFrags = [];
+let groundCrater = null;
+
+// ── STAR FIELD ──
+function initStars() {
+  stars = [];
+  for (let i = 0; i < 120; i++) {
+    stars.push({
+      x: Math.random() * W,
+      y: Math.random() * H * 0.55,
+      r: Math.random() * 1.2 + 0.2,
+      twinkle: Math.random() * Math.PI * 2,
+      speed: Math.random() * 0.02 + 0.005,
+    });
+  }
+}
+initStars();
+
+// ── ATMOSPHERE LAYER COLORS ──
+// Y positions mapped 0 (top=space) → 1 (bottom=ground)
+function getAtmosphereColor(yRatio) {
+  // 0.0 - 0.15 : deep space
+  // 0.15 - 0.45: upper atmosphere (thermosphere/mesosphere)
+  // 0.45 - 0.72: stratosphere
+  // 0.72 - 0.88: troposphere
+  // 0.88 - 1.0 : ground
+  if (yRatio < 0.15) return null;
+  if (yRatio < 0.45) return `rgba(10,30,80,${(yRatio-0.15)/0.30*0.18})`;
+  if (yRatio < 0.72) return `rgba(15,60,140,${(yRatio-0.45)/0.27*0.28})`;
+  if (yRatio < 0.88) return `rgba(30,110,200,${(yRatio-0.72)/0.16*0.35})`;
+  return null;
+}
+
+// ── DRAW BACKGROUND ──
+function drawBackground() {
+  ctx.fillStyle = '#050A14';
+  ctx.fillRect(0, 0, W, H);
+
+  // atmosphere gradient layers
+  for (let layer of [
+    { y1: H*0.15, y2: H*0.45, c1:'rgba(5,15,50,0)', c2:'rgba(10,35,90,0.18)' },
+    { y1: H*0.35, y2: H*0.72, c1:'rgba(10,35,90,0.1)', c2:'rgba(15,65,155,0.30)' },
+    { y1: H*0.62, y2: H*0.88, c1:'rgba(20,80,180,0.2)', c2:'rgba(30,120,210,0.40)' },
+  ]) {
+    const g = ctx.createLinearGradient(0, layer.y1, 0, layer.y2);
+    g.addColorStop(0, layer.c1);
+    g.addColorStop(1, layer.c2);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, layer.y1, W, layer.y2 - layer.y1);
+  }
+
+  // ground
+  const groundY = H * 0.88;
+  ctx.fillStyle = '#0A1508';
+  ctx.fillRect(0, groundY, W, H - groundY);
+
+  // ground glow line
+  ctx.strokeStyle = '#0D2B0A';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, groundY);
+  ctx.lineTo(W, groundY);
+  ctx.stroke();
+}
+
+// ── DRAW STARS ──
+function drawStars(t) {
+  stars.forEach(s => {
+    const twinkleAmt = 0.5 + 0.5 * Math.sin(t * s.speed * 60 + s.twinkle);
+    const opacity    = 0.3 + twinkleAmt * 0.7;
+    ctx.globalAlpha  = opacity;
+    ctx.fillStyle    = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ── DRAW ALTITUDE LABELS ──
+function drawAltLabels() {
+  const labels = [
+    { y: 0.15, txt: '400 km  ORBIT' },
+    { y: 0.35, txt: '100 km  KARMAN' },
+    { y: 0.55, txt: '50 km' },
+    { y: 0.72, txt: '12 km' },
+  ];
+  ctx.font = '7px Courier New';
+  ctx.textAlign = 'left';
+  labels.forEach(l => {
+    ctx.globalAlpha = 0.18;
+    ctx.strokeStyle = '#4466AA';
+    ctx.setLineDash([2,6]);
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(22, H*l.y);
+    ctx.lineTo(W-22, H*l.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = '#4466AA';
+    ctx.fillText(l.txt, 26, H*l.y - 2);
+  });
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+}
+
+// ── PARTICLE SYSTEM ──
+function spawnParticle(x, y, type, vx, vy) {
+  const types = {
+    fire:    { r:[3,7],  life:[0.6,1.2], colors:['#FF6B2B','#FF9944','#FFCC55','#FFF3E0'] },
+    smoke:   { r:[4,10], life:[0.8,1.8], colors:['#334455','#445566','#223344'] },
+    plasma:  { r:[2,5],  life:[0.3,0.7], colors:['#AADDFF','#FFFFFF','#88CCFF'] },
+    debris:  { r:[1,3],  life:[0.5,1.5], colors:['#8877AA','#AA9988','#CCBBAA'] },
+    spark:   { r:[1,2],  life:[0.2,0.6], colors:['#FFFFFF','#FFFFAA','#FFCC44'] },
+    crater:  { r:[3,8],  life:[0.5,1.2], colors:['#334422','#445533','#223311'] },
+    steam:   { r:[5,12], life:[0.8,2.0], colors:['#AACCDD','#BBDDEE','#CCEEEE'] },
+  };
+  const tp = types[type] || types.fire;
+  const rnd = (a,b) => a + Math.random()*(b-a);
+  particles.push({
+    x, y, vx: vx + rnd(-1.5,1.5), vy: vy + rnd(-1.5,1.5),
+    r: rnd(...tp.r),
+    life: 1,
+    maxLife: rnd(...tp.life),
+    decay: 1/rnd(...tp.life)/60,
+    color: tp.colors[Math.floor(Math.random()*tp.colors.length)],
+    type,
+  });
+}
+
+function spawnBurst(x, y, count, type, spread=3) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random()*Math.PI*2;
+    const s = Math.random()*spread;
+    spawnParticle(x, y, type, Math.cos(a)*s, Math.sin(a)*s);
+  }
+}
+
+function updateParticles() {
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    if (p.type === 'fire' || p.type === 'smoke' || p.type === 'steam') p.vy -= 0.06;
+    if (p.type === 'debris') p.vy += 0.12;
+    if (p.type === 'crater') { p.vy += 0.08; p.vx *= 0.92; }
+    p.life -= p.decay;
+    p.r *= 0.995;
+  });
+}
+
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.globalAlpha = Math.max(0, p.life * 0.9);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(0, p.r), 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ── OBJECT DRAWING ──
+function drawObject(obj) {
+  if (!obj || obj.mass <= 0) return;
+  const { x, y, angle, radius, shape, mat, heat, mass } = obj;
+  const matData = MATERIALS[mat];
+  const surfaceTemp = simData.temperature;
+  const massRatio   = mass / obj.initialMass;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  const r = radius * massRatio;
+  if (r < 0.5) { ctx.restore(); return; }
+
+  // heat glow
+  if (heat > 0.1) {
+    const glowR  = r * (1.5 + heat * 4);
+    const heatG  = ctx.createRadialGradient(0,0,r*0.5, 0,0,glowR);
+    const alpha  = Math.min(0.9, heat * 1.2);
+    heatG.addColorStop(0, `rgba(255,200,100,${alpha*0.8})`);
+    heatG.addColorStop(0.4, `rgba(255,100,30,${alpha*0.5})`);
+    heatG.addColorStop(1, 'rgba(255,50,0,0)');
+    ctx.fillStyle = heatG;
+    ctx.beginPath();
+    ctx.arc(0, 0, glowR, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // object body
+  ctx.fillStyle = matData.color;
+  if (shape === 'sphere') {
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI*2);
+    ctx.fill();
+  } else if (shape === 'cube') {
+    ctx.fillRect(-r, -r, r*2, r*2);
+  } else if (shape === 'flat') {
+    ctx.fillRect(-r*1.8, -r*0.5, r*3.6, r*1);
+  } else if (shape === 'sharp') {
+    ctx.beginPath();
+    ctx.moveTo(0, -r*1.5);
+    ctx.lineTo(r*0.7, r*0.8);
+    ctx.lineTo(-r*0.7, r*0.8);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // surface heat color overlay
+  if (heat > 0.2) {
+    const heatColor = heat > 0.8
+      ? `rgba(255,255,200,${(heat-0.8)*2})`
+      : `rgba(255,100,0,${heat*0.6})`;
+    ctx.fillStyle = heatColor;
+    if (shape === 'sphere') {
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI*2);
+      ctx.fill();
+    } else if (shape === 'cube') {
+      ctx.fillRect(-r, -r, r*2, r*2);
+    } else if (shape === 'flat') {
+      ctx.fillRect(-r*1.8, -r*0.5, r*3.6, r*1);
+    } else if (shape === 'sharp') {
+      ctx.beginPath();
+      ctx.moveTo(0, -r*1.5);
+      ctx.lineTo(r*0.7, r*0.8);
+      ctx.lineTo(-r*0.7, r*0.8);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  ctx.restore();
+}
+
+// ── DRAW TRAIL ──
+function drawTrail() {
+  if (trailPoints.length < 2) return;
+  for (let i = 1; i < trailPoints.length; i++) {
+    const p  = trailPoints[i-1];
+    const q  = trailPoints[i];
+    const t  = i / trailPoints.length;
+    const heat = p.heat || 0;
+    const r  = 1 + heat * 3;
+    ctx.globalAlpha = t * 0.6 * heat;
+    ctx.strokeStyle = heat > 0.7 ? '#FFF3E0' : heat > 0.4 ? '#FF9944' : '#FF6B2B';
+    ctx.lineWidth   = r;
+    ctx.lineCap     = 'round';
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(q.x, q.y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ── DRAW CRATER ──
+function drawCrater(c) {
+  if (!c) return;
+  const { x, y, r, alpha=1 } = c;
+  ctx.globalAlpha = alpha;
+  // outer ring
+  ctx.strokeStyle = '#223311';
+  ctx.lineWidth   = 2;
+  ctx.beginPath();
+  ctx.ellipse(x, y, r*1.2, r*0.4, 0, 0, Math.PI*2);
+  ctx.stroke();
+  // inner dark
+  const cg = ctx.createRadialGradient(x, y, 0, x, y, r);
+  cg.addColorStop(0, '#000A00');
+  cg.addColorStop(0.6, '#0A1808');
+  cg.addColorStop(1, '#0A1508');
+  ctx.fillStyle = cg;
+  ctx.beginPath();
+  ctx.ellipse(x, y, r, r*0.35, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+// ── DRAW DEBRIS FRAGMENTS ──
+function drawDebris() {
+  debrisFrags.forEach(d => {
+    if (d.life <= 0) return;
+    ctx.globalAlpha = d.life;
+    ctx.fillStyle = d.color;
+    ctx.save();
+    ctx.translate(d.x, d.y);
+    ctx.rotate(d.rot);
+    ctx.fillRect(-d.r, -d.r, d.r*2, d.r*2);
+    ctx.restore();
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ── SIMULATION PHYSICS ──
+// Simplified but scientifically-inspired atmospheric entry model
+function createSimulation(cfg) {
+  const mat      = MATERIALS[cfg.mat];
+  const sizePx   = [0, 8, 14, 22, 34, 50][cfg.size];    // visual radius
+  const massKg   = [0, 0.5, 5, 100, 5000, 200000][cfg.size]; // kg
+  const entrySpd = SPEED_KMS[cfg.speed]; // km/s
+  const angleRad = (cfg.angle * Math.PI) / 180;
+
+  // starting position (off-screen top)
+  const startX = W * 0.3 + Math.random() * W * 0.4;
+  const startY = -sizePx * 2;
+
+  // velocity vector
+  const vx = Math.cos(angleRad - Math.PI/2) * (entrySpd * 8); // scaled for canvas
+  const vy = Math.sin(angleRad)              * (entrySpd * 8);
+
+  return {
+    // object state
+    x: startX, y: startY,
+    vx, vy,
+    radius: sizePx,
+    initialMass: massKg,
+    mass: massKg,
+    angle: Math.atan2(vy, vx),
+    mat: cfg.mat,
+    shape: cfg.shape,
+    name: cfg.name || mat.name,
+
+    // physics accumulators
+    heat: 0,
+    temperature: 0,
+    maxTemp: 0,
+    entrySpeed: entrySpd,
+    altitude: 400,       // km, starts at ~400km (LEO)
+    elapsedTime: 0,
+    phase: 'space',      // space | entry | ablation | terminal | impact | skip | done
+    outcome: null,
+
+    // drag/heat coefficients
+    cd: SHAPE_CD[cfg.shape] * mat.cdMod,
+    heatResist: mat.heatResist,
+    meltPoint: mat.meltPoint,
+
+    // config ref
+    cfg,
+  };
+}
+
+let sim = null;
+
+function updateSimulation() {
+  if (!sim || sim.phase === 'done') return;
+
+  const dt = 1;
+  sim.elapsedTime += dt;
+
+  // ── ALTITUDE calc (simplified: linear Y to altitude mapping)
+  const groundY = H * 0.88;
+  const atmTopY = H * 0.15;
+  const yRatio  = (sim.y - atmTopY) / (groundY - atmTopY);
+  sim.altitude  = Math.max(0, 400 * (1 - yRatio));
+
+  // ── PHASE TRANSITIONS ──
+  if (sim.altitude > 100 && sim.phase === 'space') {
+    // still in space — minimal drag
+    sim.x += sim.vx * 0.08;
+    sim.y += sim.vy * 0.08;
+    return;
+  }
+
+  if (sim.altitude <= 100 && sim.phase === 'space') {
+    sim.phase = 'entry';
+    showPhaseTag('ENTRY PHASE');
+    addLog('> Vào khí quyển — ma sát bắt đầu');
+  }
+
+  // ── DRAG FORCE (simplified) ──
+  const speed = Math.sqrt(sim.vx**2 + sim.vy**2);
+  const atmoFactor = Math.max(0, Math.min(1, yRatio * 2.5)); // density 0→1 as descend
+  const drag = sim.cd * atmoFactor * 0.018;
+
+  if (speed > 0) {
+    sim.vx -= (sim.vx / speed) * drag * speed;
+    sim.vy -= (sim.vy / speed) * drag * speed;
+    // gravity
+    sim.vy += 0.04 * atmoFactor;
+  }
+
+  // ── HEAT GENERATION ──
+  // Q ∝ ρ v³ (simplified: atmo density × speed³)
+  const heatInput = atmoFactor * (speed ** 1.5) * 0.00005;
+  const heatLoss  = sim.heatResist * 0.015;
+  sim.heat = Math.min(1, Math.max(0, sim.heat + heatInput - heatLoss));
+
+  // temperature: approx 0 to 3500°C based on heat level and material
+  sim.temperature = sim.heat * 3500;
+  if (sim.temperature > sim.maxTemp) sim.maxTemp = sim.temperature;
+
+  // ── MASS ABLATION ──
+  // Object loses mass if temperature > melt point
+  if (sim.temperature > sim.meltPoint) {
+    const ablation = (sim.temperature - sim.meltPoint) / sim.meltPoint * 0.003;
+    const lossFraction = ablation * (1 - sim.heatResist);
+    sim.mass = Math.max(0, sim.mass - sim.initialMass * lossFraction);
+
+    // spawn ablation particles
+    if (sim.heat > 0.3 && Math.random() < 0.6) {
+      const mat = MATERIALS[sim.mat];
+      if (mat.meltPoint < 100) {
+        spawnParticle(sim.x, sim.y, 'steam', -sim.vx*0.1, -2);
+      } else if (mat.meltPoint < 400) {
+        spawnParticle(sim.x, sim.y, 'fire', -sim.vx*0.1, -2);
+      } else {
+        spawnParticle(sim.x, sim.y, 'plasma', -sim.vx*0.1, -2);
+      }
+    }
+  }
+
+  // ── FIRE / PLASMA TRAIL ──
+  if (sim.heat > 0.1 && Math.random() < 0.8) {
+    const pType = sim.heat > 0.7 ? 'plasma' : 'fire';
+    spawnParticle(sim.x, sim.y, pType, -sim.vx*0.05, -sim.vy*0.05 - 1);
+    if (sim.heat > 0.5 && Math.random() < 0.5) {
+      spawnParticle(sim.x, sim.y, 'spark', -sim.vx*0.1, -sim.vy*0.1);
+    }
+  }
+  if (sim.heat > 0.4 && Math.random() < 0.4) {
+    spawnParticle(sim.x, sim.y, 'smoke', -sim.vx*0.03, -2);
+  }
+
+  // trail
+  trailPoints.push({ x: sim.x, y: sim.y, heat: sim.heat });
+  if (trailPoints.length > 60) trailPoints.shift();
+
+  // ── PHASE: ABLATION ──
+  if (sim.phase === 'entry' && sim.heat > 0.4) {
+    sim.phase = 'ablation';
+    showPhaseTag('ABLATION');
+    addLog('> Nhiệt độ cực cao — vật thể bắt đầu cháy');
+  }
+
+  // ── MASS DEPLETION → VAPORIZED ──
+  if (sim.mass <= sim.initialMass * 0.02) {
+    sim.phase = 'done';
+    sim.outcome = 'vaporized';
+    triggerOutcome();
+    return;
+  }
+
+  // ── MOVE OBJECT ──
+  sim.x += sim.vx * 0.5;
+  sim.y += sim.vy * 0.5;
+
+  // ── CHECK SKIP (shallow angle + high speed near upper atmo) ──
+  if (sim.cfg.angle < 12 && sim.altitude > 50 && sim.altitude < 90 && speed > 10) {
+    sim.vy *= -0.6; // bounce upward
+    sim.vx *= 0.9;
+    sim.phase = 'done';
+    sim.outcome = 'skipped';
+    addLog('> Góc vào quá nông — vật thể nảy lại!');
+    triggerOutcome();
+    return;
+  }
+
+  // ── FRAGMENTATION: mid-flight breakup ──
+  if (sim.phase === 'ablation' && sim.heat > 0.85 && sim.mass > sim.initialMass * 0.3) {
+    const massRatio = sim.mass / sim.initialMass;
+    // fragmentation probability based on material fragility
+    const fragChance = (1 - sim.heatResist) * 0.025;
+    if (Math.random() < fragChance && massRatio < 0.65) {
+      sim.phase = 'done';
+      sim.outcome = 'fragmented';
+      triggerOutcome();
+      return;
+    }
+  }
+
+  // ── TERMINAL PHASE ──
+  if (sim.altitude < 20 && sim.phase === 'ablation') {
+    sim.phase = 'terminal';
+    showPhaseTag('TERMINAL');
+    addLog('> Độ cao thấp — chuẩn bị va chạm');
+  }
+
+  // ── IMPACT ──
+  if (sim.y >= groundY - sim.radius * (sim.mass/sim.initialMass)) {
+    sim.y = groundY;
+    sim.phase = 'done';
+    sim.outcome = 'impact';
+    triggerOutcome();
+  }
+}
+
+// ── OUTCOME HANDLER ──
+function triggerOutcome() {
+  clearTimeout(window._outcomeTimer);
+  window._outcomeTimer = setTimeout(() => {
+    switch(sim.outcome) {
+      case 'vaporized':
+        showPhaseTag('VAPORIZED');
+        addLog('> Thiêu rụi hoàn toàn trong khí quyển');
+        spawnBurst(sim.x, sim.y, 40, 'fire', 5);
+        spawnBurst(sim.x, sim.y, 20, 'plasma', 3);
+        break;
+
+      case 'fragmented':
+        showPhaseTag('FRAGMENTED');
+        addLog('> Áp suất không khí xé vỡ vật thể!');
+        spawnBurst(sim.x, sim.y, 30, 'debris', 6);
+        spawnBurst(sim.x, sim.y, 20, 'fire', 4);
+        // spawn flying debris
+        for (let i = 0; i < 8; i++) {
+          const a = Math.random()*Math.PI*2;
+          const s = 2 + Math.random()*4;
+          debrisFrags.push({
+            x: sim.x, y: sim.y,
+            vx: Math.cos(a)*s, vy: Math.sin(a)*s - 2,
+            r: sim.radius * 0.15 + Math.random()*sim.radius*0.2,
+            rot: Math.random()*Math.PI*2, rotSpeed: (Math.random()-0.5)*0.15,
+            life: 1, color: MATERIALS[sim.mat].color,
+          });
+        }
+        break;
+
+      case 'impact':
+        showPhaseTag('IMPACT!');
+        addLog('> Va chạm! Hố va chạm hình thành!');
+        const massRatio = sim.mass / sim.initialMass;
+        const craterR   = sim.radius * massRatio * (3 + sim.entrySpeed/5);
+        groundCrater = { x: sim.x, y: H*0.88, r: craterR, alpha:1 };
+        spawnBurst(sim.x, H*0.88, 50, 'crater', 8);
+        spawnBurst(sim.x, H*0.88, 30, 'debris', 6);
+        spawnBurst(sim.x, H*0.88, 20, 'smoke', 4);
+        // screen shake
+        shakeScreen();
+        break;
+
+      case 'skipped':
+        showPhaseTag('SKIP OFF!');
+        spawnBurst(sim.x, sim.y, 20, 'plasma', 4);
+        break;
+    }
+
+    // show results after a short delay
+    setTimeout(showResult, 1800);
+  }, 100);
+}
+
+let shakeAmt = 0;
+function shakeScreen() {
+  shakeAmt = 10;
+}
+
+// ── UI UPDATES ──
+function updateHUD() {
+  if (!sim) return;
+  const massRatio = sim.initialMass > 0 ? sim.mass / sim.initialMass : 0;
+  const speed     = Math.sqrt(sim.vx**2 + sim.vy**2) / 8;
+
+  // instruments
+  const iSpeed = document.getElementById('i-speed');
+  const iTemp  = document.getElementById('i-temp');
+  const iAlt   = document.getElementById('i-alt');
+  const iMass  = document.getElementById('i-mass');
+
+  iSpeed.textContent = speed.toFixed(1);
+  iTemp.textContent  = Math.round(sim.temperature).toLocaleString();
+  iAlt.textContent   = Math.round(sim.altitude);
+  iMass.textContent  = Math.round(massRatio*100);
+
+  // color coding
+  iSpeed.className = `inst-val${speed > 10 ? ' danger' : speed > 5 ? ' hot' : ''}`;
+  iTemp.className  = `inst-val${sim.temperature > 2500 ? ' danger' : sim.temperature > 1000 ? ' hot' : ''}`;
+  iMass.className  = `inst-val${massRatio < 0.2 ? ' danger' : massRatio < 0.5 ? ' hot' : ''}`;
+
+  // altitude bar (0 = ground, 1 = space)
+  const altPct = Math.min(100, sim.altitude / 400 * 100);
+  document.getElementById('alt-fill').style.height = altPct + '%';
+
+  // temp bar
+  const tempPct = Math.min(100, sim.temperature / 3500 * 100);
+  document.getElementById('temp-fill').style.height = tempPct + '%';
+}
+
+function showPhaseTag(txt) {
+  const el = document.getElementById('phase-tag');
+  el.textContent = txt;
+  el.classList.add('visible');
+  clearTimeout(window._phaseTimer);
+  window._phaseTimer = setTimeout(() => el.classList.remove('visible'), 1500);
+}
+
+function addLog(txt) {
+  const bar = document.getElementById('log-bar');
+  const el  = document.createElement('div');
+  el.className = 'log-line';
+  el.textContent = txt;
+  bar.appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ── SHOW RESULT ──
+function showResult() {
+  simState = 'result';
+
+  const outcomes = {
+    vaporized:  { label: '💨 THIÊU RỤI HOÀN TOÀN', color: '#AADDFF' },
+    fragmented: { label: '💥 VỠ VỤN GIỮA KHÔNG TRUNG', color: '#FF9944' },
+    impact:     { label: '🕳️ VA CHẠM — HỐ HÌNH THÀNH', color: '#00FF9F' },
+    skipped:    { label: '🔄 NẢY LẠI KHỎI KHÍ QUYỂN', color: '#AADDFF' },
+  };
+
+  const oc = outcomes[sim.outcome] || outcomes.vaporized;
+  const massRatio = sim.mass / sim.initialMass;
+  const entrySpd  = sim.entrySpeed;
+
+  document.getElementById('result-outcome').textContent = oc.label;
+  document.getElementById('result-outcome').style.color = oc.color;
+
+  document.getElementById('st-maxtemp').textContent = Math.round(sim.maxTemp).toLocaleString() + '°C';
+  document.getElementById('st-speed').textContent   = entrySpd.toFixed(1) + ' km/s';
+  document.getElementById('st-survive').textContent = Math.round(massRatio*100) + '%';
+
+  // fun fact
+  const facts = FUN_FACTS[sim.outcome] || FUN_FACTS.vaporized;
+  document.getElementById('fact-text').textContent = facts[Math.floor(Math.random()*facts.length)];
+
+  // update mission counter
+  missionCount++;
+  localStorage.setItem('re_missions', missionCount);
+  document.getElementById('mission-id').textContent =
+    `MISSION — ${String(missionCount).padStart(3,'0')} · ATMOSPHERIC DESCENT ANALYSIS`;
+
+  // switch screens
+  document.getElementById('running-screen').style.display = 'none';
+  document.getElementById('result-screen').style.display  = 'flex';
+  document.getElementById('setup-screen').style.display   = 'none';
+}
+
+// ── MAIN RENDER LOOP ──
+let lastTime = 0;
+function renderLoop(timestamp) {
+  const dt = timestamp - lastTime;
+  lastTime = timestamp;
+
+  const t = timestamp / 1000;
+
+  // shake
+  let sx = 0, sy = 0;
+  if (shakeAmt > 0) {
+    sx = (Math.random()-0.5)*shakeAmt*2;
+    sy = (Math.random()-0.5)*shakeAmt*2;
+    shakeAmt *= 0.8;
+    if (shakeAmt < 0.5) shakeAmt = 0;
+  }
+
+  ctx.save();
+  ctx.translate(sx, sy);
+
+  drawBackground();
+  drawStars(t);
+  drawAltLabels();
+  drawCrater(groundCrater);
+  drawTrail();
+  drawDebris();
+
+  // update debris
+  debrisFrags.forEach(d => {
+    d.x  += d.vx;
+    d.y  += d.vy;
+    d.vy += 0.1;
+    d.vx *= 0.98;
+    d.rot += d.rotSpeed;
+    d.life -= 0.015;
+  });
+  debrisFrags = debrisFrags.filter(d => d.life > 0);
+
+  if (simState === 'running' && sim && sim.phase !== 'done') {
+    // run physics a few steps per frame for smoother result
+    for (let i = 0; i < 3; i++) {
+      updateSimulation();
+    }
+    drawObject(sim);
+    updateHUD();
+  } else if (sim) {
+    drawObject(sim);
+  }
+
+  updateParticles();
+  drawParticles();
+
+  ctx.restore();
+
+  animFrame = requestAnimationFrame(renderLoop);
+}
+
+// ── LAUNCH ──
+function launch() {
+  const name  = document.getElementById('obj-name').value.trim() || MATERIALS[selectedMat].name;
+  const size  = parseInt(document.getElementById('sl-size').value);
+  const angle = parseInt(document.getElementById('sl-angle').value);
+  const speed = parseInt(document.getElementById('sl-speed').value);
+
+  const cfg = { name, mat: selectedMat, shape: selectedShape, size, angle, speed };
+
+  // reset
+  particles    = [];
+  trailPoints  = [];
+  debrisFrags  = [];
+  groundCrater = null;
+  shakeAmt     = 0;
+
+  sim = createSimulation(cfg);
+  simData = sim;
+  simState = 'running';
+
+  // reset HUD
+  document.getElementById('alt-fill').style.height  = '100%';
+  document.getElementById('temp-fill').style.height = '0%';
+  ['i-speed','i-temp','i-alt','i-mass'].forEach(id => {
+    document.getElementById(id).className = 'inst-val';
+  });
+
+  // switch screens
+  document.getElementById('setup-screen').style.display   = 'none';
+  document.getElementById('result-screen').style.display  = 'none';
+  document.getElementById('running-screen').style.display = 'block';
+  document.getElementById('run-obj-name').textContent     =
+    MATERIALS[selectedMat].emoji + ' ' + name;
+
+  addLog(`> PHÓNG: ${name} [${MATERIALS[selectedMat].name} / ${selectedShape}]`);
+  addLog(`> Góc: ${angle}° · Tốc độ: ${SPEED_KMS[speed]} km/s`);
+}
+
+// ── RETRY ──
+function retry() {
+  simState = 'idle';
+  sim      = null;
+  particles    = [];
+  trailPoints  = [];
+  debrisFrags  = [];
+  groundCrater = null;
+  shakeAmt     = 0;
+
+  document.getElementById('result-screen').style.display  = 'none';
+  document.getElementById('running-screen').style.display = 'none';
+  document.getElementById('setup-screen').style.display   = 'flex';
+
+  // reset HUD
+  document.getElementById('alt-fill').style.height  = '100%';
+  document.getElementById('temp-fill').style.height = '0%';
+  document.getElementById('i-speed').textContent = '0.0';
+  document.getElementById('i-temp').textContent  = '0';
+  document.getElementById('i-alt').textContent   = '400';
+  document.getElementById('i-mass').textContent  = '100';
+}
+
+// ── SLIDER LABELS ──
+document.getElementById('sl-size').addEventListener('input', function() {
+  document.getElementById('sv-size').textContent = SIZE_LABELS[this.value];
+});
+document.getElementById('sl-angle').addEventListener('input', function() {
+  document.getElementById('sv-angle').textContent = this.value + '°';
+});
+document.getElementById('sl-speed').addEventListener('input', function() {
+  document.getElementById('sv-speed').textContent = SPEED_LABELS[this.value];
+});
+
+// ── MATERIAL PILLS ──
+document.querySelectorAll('.mat-pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.mat-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    selectedMat = pill.dataset.mat;
+  });
+});
+
+// ── SHAPE PILLS ──
+document.querySelectorAll('.shape-pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.shape-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    selectedShape = pill.dataset.shape;
+  });
+});
+
+// ── BUTTONS ──
+document.getElementById('btn-launch').addEventListener('click', launch);
+document.getElementById('btn-retry').addEventListener('click', retry);
+
+// ── START ──
+renderLoop(0);
+</script>
+</body>
+</html>
+HTMLEOF
+echo "Done. File size: $(wc -c < /mnt/user-data/outputs/index.html) bytes"
